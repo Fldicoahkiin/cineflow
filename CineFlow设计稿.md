@@ -35,12 +35,13 @@
 
 ### 3.1. 技术栈
 
-* **核心框架**: Flutter
-* **P2P 通信**: WebRTC (通过 `flutter-webrtc` 插件实现)
-* **视频播放**: `media_kit` 或 `video_player`
-* **状态管理**: Riverpod 或 Bloc
-* **本地文件处理**: `file_picker` (手动选择), `dart:io` (桌面端目录扫描)
-* **二维码**: `qr_flutter` (生成), `flutter_zxing` (扫描)
+* **核心框架**: Flutter 跨平台开发框架
+* **P2P 通信**: flutter_webrtc WebRTC 连接实现
+* **视频播放**: media_kit 高性能多媒体播放器
+* **状态管理**: 自定义状态服务，支持类型安全和事件通知
+* **文件处理**: file_picker 文件选择，path 路径处理
+* **网络通信**: web_socket_channel WebSocket 连接
+* **应用管理**: 统一的应用生命周期和服务协调
 
 ### 3.2. 无服务器（P2P）架构详解
 
