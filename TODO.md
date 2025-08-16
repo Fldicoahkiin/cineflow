@@ -120,9 +120,9 @@
   - [x] 创建Node.js + Socket.io信令服务器代码
   - [x] 实现房间管理和P2P协商
   - [x] 配置多平台部署文件（Railway、Render、Vercel）
-  - [x] 创建Dockerfile用于容器化部署
 - [ ] **免费平台部署**
-  - [ ] 部署到Koyeb免费服务（进行中）
+  - [x] 创建Dockerfile用于容器化部署
+  - [ ] 部署到Koyeb免费服务
   - [ ] 配置HTTPS和WebSocket支持
   - [ ] 测试信令服务器功能
   - [ ] 更新Flutter应用中的服务器地址

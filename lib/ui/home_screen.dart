@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import 'session/join_session_page.dart';
+import 'session/log_export_page.dart';
 
 /// 首页占位页面（最小可运行）。
 /// 后续将接入：
@@ -13,7 +14,20 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('CineFlow')),
+      appBar: AppBar(
+        title: const Text('CineFlow'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LogExportPage()),
+              );
+            },
+            tooltip: 'Debug Logs',
+          ),
+        ],
+      ),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -27,6 +41,16 @@ class HomeScreen extends StatelessWidget {
                 );
               },
               child: Text(AppLocalizations.of(context)?.createJoinSession ?? 'Create/Join Session'),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LogExportPage()),
+                );
+              },
+              icon: const Icon(Icons.analytics),
+              label: const Text('Debug Logs'),
             ),
           ],
         ),

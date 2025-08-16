@@ -10,6 +10,9 @@ import 'ui/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // 初始化全局错误捕获
+  GlobalErrorHandler.initialize();
+  
   // 初始化日志系统
   await LoggerService.instance.initialize();
   Log.i('Main', 'CineFlow application starting');

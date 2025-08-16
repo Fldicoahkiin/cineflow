@@ -203,6 +203,21 @@ abstract class AppLocalizations {
   String get data;
   String get stackTrace;
 
+  // Log Export
+  String get logExport;
+  String get logStatistics;
+  String get filteredLogs;
+  String get filters;
+  String get logLevel;
+  String get sinceDate;
+  String get noFilter;
+  String get exportFormat;
+  String get exporting;
+  String get copyToClipboard;
+  String get logPreview;
+  String get noLogsFound;
+  String get refresh;
+
   // Log Levels
   String get logLevelDebug;
   String get logLevelInfo;

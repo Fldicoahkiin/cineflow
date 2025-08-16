@@ -48,6 +48,58 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get connected => '已连接';
 
+  // Log Export
+  @override
+  String get logExport => '日志导出';
+
+  @override
+  String get logStatistics => '日志统计';
+
+  @override
+  String get filteredLogs => '过滤后的日志';
+
+  @override
+  String get filters => '过滤器';
+
+  @override
+  String get logLevel => '日志级别';
+
+  @override
+  String get all => '全部';
+
+  @override
+  String get tag => '标签';
+
+  @override
+  String get sinceDate => '起始日期';
+
+  @override
+  String get noFilter => '无过滤';
+
+  @override
+  String get exportFormat => '导出格式';
+
+  @override
+  String get exportLogs => '导出日志';
+
+  @override
+  String get exporting => '导出中...';
+
+  @override
+  String get copyToClipboard => '复制到剪贴板';
+
+  @override
+  String get logPreview => '日志预览';
+
+  @override
+  String get noLogsFound => '未找到日志';
+
+  @override
+  String get refresh => '刷新';
+
+  @override
+  String get clearLogs => '清空日志';
+
   @override
   String get sessionCreated => '会话已创建';
 

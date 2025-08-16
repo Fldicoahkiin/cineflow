@@ -48,6 +48,58 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get connected => 'Connected';
 
+  // Log Export
+  @override
+  String get logExport => 'Log Export';
+
+  @override
+  String get logStatistics => 'Log Statistics';
+
+  @override
+  String get filteredLogs => 'Filtered Logs';
+
+  @override
+  String get filters => 'Filters';
+
+  @override
+  String get logLevel => 'Log Level';
+
+  @override
+  String get all => 'All';
+
+  @override
+  String get tag => 'Tag';
+
+  @override
+  String get sinceDate => 'Since Date';
+
+  @override
+  String get noFilter => 'No Filter';
+
+  @override
+  String get exportFormat => 'Export Format';
+
+  @override
+  String get exportLogs => 'Export Logs';
+
+  @override
+  String get exporting => 'Exporting...';
+
+  @override
+  String get copyToClipboard => 'Copy to Clipboard';
+
+  @override
+  String get logPreview => 'Log Preview';
+
+  @override
+  String get noLogsFound => 'No logs found';
+
+  @override
+  String get refresh => 'Refresh';
+
+  @override
+  String get clearLogs => 'Clear Logs';
+
   @override
   String get sessionCreated => 'Session Created';
 

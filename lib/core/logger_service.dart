@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 enum LogLevel {
@@ -234,19 +235,76 @@ class LoggerService {
     LogLevel? minLevel,
     String? tag,
     DateTime? since,
+    String? format = 'json', // 'json' or 'text'
   }) async {
     try {
       final logs = getLogs(minLevel: minLevel, tag: tag, since: since);
-      final jsonList = logs.map((e) => e.toJson()).toList();
       
-      final directory = await getApplicationDocumentsDirectory();
-      final exportFile = File('${directory.path}/cineflow_logs_export_${DateTime.now().millisecondsSinceEpoch}.json');
-      
-      await exportFile.writeAsString(jsonEncode(jsonList));
-      return exportFile.path;
+      if (kIsWeb) {
+        // Web平台返回内容字符串，由UI层处理下载
+        if (format == 'json') {
+          final jsonList = logs.map((e) => e.toJson()).toList();
+          return jsonEncode(jsonList);
+        } else {
+          return logs.map((e) => e.toString()).join('\n');
+        }
+      } else {
+        // 移动端和桌面端写入文件
+        final directory = await getApplicationDocumentsDirectory();
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final extension = format == 'json' ? 'json' : 'txt';
+        final exportFile = File('${directory.path}/cineflow_logs_export_$timestamp.$extension');
+        
+        String content;
+        if (format == 'json') {
+          final jsonList = logs.map((e) => e.toJson()).toList();
+          content = jsonEncode(jsonList);
+        } else {
+          content = logs.map((e) => e.toString()).join('\n');
+        }
+        
+        await exportFile.writeAsString(content);
+        return exportFile.path;
+      }
     } catch (e) {
       error('LoggerService', 'Failed to export logs: $e');
       return null;
+    }
+  }
+
+  // Web平台导出日志内容
+  String exportLogsAsString({
+    LogLevel? minLevel,
+    String? tag,
+    DateTime? since,
+    String format = 'text',
+  }) {
+    final logs = getLogs(minLevel: minLevel, tag: tag, since: since);
+    
+    if (format == 'json') {
+      final jsonList = logs.map((e) => e.toJson()).toList();
+      return jsonEncode(jsonList);
+    } else {
+      final buffer = StringBuffer();
+      buffer.writeln('CineFlow 应用日志导出');
+      buffer.writeln('导出时间: ${DateTime.now()}');
+      buffer.writeln('日志条数: ${logs.length}');
+      buffer.writeln('=' * 50);
+      buffer.writeln();
+      
+      for (final log in logs) {
+        buffer.writeln(log.toString());
+        if (log.data != null) {
+          buffer.writeln('  数据: ${jsonEncode(log.data)}');
+        }
+        if (log.stackTrace != null) {
+          buffer.writeln('  堆栈跟踪:');
+          buffer.writeln('    ${log.stackTrace.toString().replaceAll('\n', '\n    ')}');
+        }
+        buffer.writeln();
+      }
+      
+      return buffer.toString();
     }
   }
 
@@ -286,6 +344,42 @@ class LoggerService {
   }
 }
 
+// 全局错误捕获器
+class GlobalErrorHandler {
+  static void initialize() {
+    // Flutter错误捕获
+    FlutterError.onError = (FlutterErrorDetails details) {
+      Log.e('FlutterError', details.exception.toString(),
+          data: {
+            'library': details.library,
+            'context': details.context?.toString(),
+          },
+          stackTrace: details.stack);
+    };
+
+    // 异步错误捕获
+    PlatformDispatcher.instance.onError = (error, stack) {
+      Log.e('AsyncError', error.toString(), stackTrace: stack);
+      return true;
+    };
+  }
+
+  // 手动报告错误
+  static void reportError(Object error, StackTrace? stackTrace, {
+    String? context,
+    Map<String, dynamic>? data,
+  }) {
+    final errorData = <String, dynamic>{
+      if (context != null) 'context': context,
+      ...?data,
+    };
+    
+    Log.e('ManualError', error.toString(),
+        data: errorData.isNotEmpty ? errorData : null,
+        stackTrace: stackTrace);
+  }
+}
+
 // 便捷的全局日志方法
 class Log {
   static final _logger = LoggerService.instance;
@@ -314,5 +408,30 @@ class Log {
     StackTrace? stackTrace,
   }) {
     _logger.fatal(tag, message, data: data, stackTrace: stackTrace);
+  }
+
+  // 捕获并记录异常的包装器
+  static T? catchError<T>(T Function() operation, String tag, String context) {
+    try {
+      return operation();
+    } catch (error, stackTrace) {
+      e(tag, 'Error in $context: $error', 
+          data: {'context': context}, 
+          stackTrace: stackTrace);
+      return null;
+    }
+  }
+
+  // 异步操作错误捕获
+  static Future<T?> catchAsyncError<T>(
+      Future<T> Function() operation, String tag, String context) async {
+    try {
+      return await operation();
+    } catch (error, stackTrace) {
+      e(tag, 'Async error in $context: $error',
+          data: {'context': context},
+          stackTrace: stackTrace);
+      return null;
+    }
   }
 }

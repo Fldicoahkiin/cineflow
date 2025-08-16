@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
@@ -124,47 +125,13 @@ class FileService {
   /// 处理文件并创建MediaFileInfo
   Future<MediaFileInfo?> _processFile(PlatformFile platformFile) async {
     try {
-      // 验证文件路径
-      final filePath = platformFile.path;
-      if (filePath == null) {
-        throw FileServiceException('File path is null');
+      if (kIsWeb) {
+        // Web平台处理
+        return _processWebFile(platformFile);
+      } else {
+        // 移动端和桌面端处理
+        return _processNativeFile(platformFile);
       }
-
-      final file = File(filePath);
-      if (!await file.exists()) {
-        throw FileServiceException('File does not exist: $filePath');
-      }
-
-      // 验证文件大小
-      final fileSize = await file.length();
-      if (fileSize > maxFileSize) {
-        throw FileServiceException(
-          'File too large: ${_formatFileSize(fileSize)} (max: ${_formatFileSize(maxFileSize)})'
-        );
-      }
-
-      // 验证文件扩展名
-      final extension = p.extension(filePath).toLowerCase().replaceFirst('.', '');
-      if (allowedExtensions.isNotEmpty && !allowedExtensions.contains(extension)) {
-        throw FileServiceException(
-          'Unsupported file type: .$extension (allowed: ${allowedExtensions.join(', ')})'
-        );
-      }
-
-      // 创建文件信息
-      final fileInfo = MediaFileInfo(
-        id: _generateFileId(filePath),
-        name: platformFile.name,
-        path: filePath,
-        size: fileSize,
-        extension: extension,
-        mimeType: _getMimeType(extension),
-        lastModified: await file.lastModified(),
-        isValid: true,
-      );
-
-      debugPrint('[FileService] Processed file: ${fileInfo.name} (${_formatFileSize(fileSize)})');
-      return fileInfo;
     } catch (e, stackTrace) {
       debugPrint('[FileService] Failed to process file ${platformFile.name}: $e');
       _emitEvent(FileServiceEvent.error(
@@ -172,6 +139,89 @@ class FileService {
       ));
       return null;
     }
+  }
+
+  /// 处理Web平台文件
+  Future<MediaFileInfo?> _processWebFile(PlatformFile platformFile) async {
+    // Web平台文件大小验证
+    final fileSize = platformFile.size;
+    if (fileSize > maxFileSize) {
+      throw FileServiceException(
+        'File too large: ${_formatFileSize(fileSize)} (max: ${_formatFileSize(maxFileSize)})'
+      );
+    }
+
+    // 验证文件扩展名
+    final extension = p.extension(platformFile.name).toLowerCase().replaceFirst('.', '');
+    if (allowedExtensions.isNotEmpty && !allowedExtensions.contains(extension)) {
+      throw FileServiceException(
+        'Unsupported file type: .$extension (allowed: ${allowedExtensions.join(', ')})'
+      );
+    }
+
+    // Web平台创建文件信息（使用文件名作为路径）
+    final fileInfo = MediaFileInfo(
+      id: _generateFileId(platformFile.name + fileSize.toString()),
+      name: platformFile.name,
+      path: platformFile.name, // Web平台使用文件名
+      size: fileSize,
+      extension: extension,
+      mimeType: _getMimeType(extension),
+      lastModified: DateTime.now(), // Web平台无法获取真实修改时间
+      isValid: true,
+      metadata: {
+        'isWeb': true,
+        'bytes': platformFile.bytes, // 保存文件字节数据
+      },
+    );
+
+    debugPrint('[FileService] Processed web file: ${fileInfo.name} (${_formatFileSize(fileSize)})');
+    return fileInfo;
+  }
+
+  /// 处理原生平台文件
+  Future<MediaFileInfo?> _processNativeFile(PlatformFile platformFile) async {
+    // 验证文件路径
+    final filePath = platformFile.path;
+    if (filePath == null) {
+      throw FileServiceException('File path is null');
+    }
+
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw FileServiceException('File does not exist: $filePath');
+    }
+
+    // 验证文件大小
+    final fileSize = await file.length();
+    if (fileSize > maxFileSize) {
+      throw FileServiceException(
+        'File too large: ${_formatFileSize(fileSize)} (max: ${_formatFileSize(maxFileSize)})'
+      );
+    }
+
+    // 验证文件扩展名
+    final extension = p.extension(filePath).toLowerCase().replaceFirst('.', '');
+    if (allowedExtensions.isNotEmpty && !allowedExtensions.contains(extension)) {
+      throw FileServiceException(
+        'Unsupported file type: .$extension (allowed: ${allowedExtensions.join(', ')})'
+      );
+    }
+
+    // 创建文件信息
+    final fileInfo = MediaFileInfo(
+      id: _generateFileId(filePath),
+      name: platformFile.name,
+      path: filePath,
+      size: fileSize,
+      extension: extension,
+      mimeType: _getMimeType(extension),
+      lastModified: await file.lastModified(),
+      isValid: true,
+    );
+
+    debugPrint('[FileService] Processed native file: ${fileInfo.name} (${_formatFileSize(fileSize)})');
+    return fileInfo;
   }
 
   /// 验证文件是否仍然有效
@@ -182,25 +232,33 @@ class FileService {
     if (fileInfo == null) return false;
 
     try {
-      final file = File(fileInfo.path);
-      final exists = await file.exists();
-      
-      if (!exists) {
-        _fileCache.remove(fileId);
-        _emitEvent(FileServiceEvent.fileInvalidated(fileInfo));
-        return false;
-      }
+      if (kIsWeb) {
+        // Web平台：检查是否有字节数据
+        final isWebFile = fileInfo.metadata?['isWeb'] == true;
+        final hasBytes = fileInfo.metadata?['bytes'] != null;
+        return isWebFile && hasBytes;
+      } else {
+        // 原生平台：检查文件是否存在
+        final file = File(fileInfo.path);
+        final exists = await file.exists();
+        
+        if (!exists) {
+          _fileCache.remove(fileId);
+          _emitEvent(FileServiceEvent.fileInvalidated(fileInfo));
+          return false;
+        }
 
-      // 检查文件是否被修改
-      final lastModified = await file.lastModified();
-      if (lastModified != fileInfo.lastModified) {
-        // 文件已被修改，更新缓存
-        final updatedInfo = fileInfo.copyWith(lastModified: lastModified);
-        _fileCache[fileId] = updatedInfo;
-        _emitEvent(FileServiceEvent.fileUpdated(updatedInfo));
-      }
+        // 检查文件是否被修改
+        final lastModified = await file.lastModified();
+        if (lastModified != fileInfo.lastModified) {
+          // 文件已被修改，更新缓存
+          final updatedInfo = fileInfo.copyWith(lastModified: lastModified);
+          _fileCache[fileId] = updatedInfo;
+          _emitEvent(FileServiceEvent.fileUpdated(updatedInfo));
+        }
 
-      return true;
+        return true;
+      }
     } catch (e) {
       debugPrint('[FileService] Error validating file $fileId: $e');
       return false;
@@ -320,7 +378,19 @@ class MediaFileInfo {
   bool get isAudio => mimeType.startsWith('audio/');
 
   /// 文件URI
-  String get uri => 'file://$path';
+  String get uri {
+    if (metadata?['isWeb'] == true) {
+      // Web平台返回blob URL或data URL
+      return 'blob:$name';
+    }
+    return 'file://$path';
+  }
+
+  /// 是否为Web平台文件
+  bool get isWebFile => metadata?['isWeb'] == true;
+
+  /// 获取Web平台文件字节数据
+  Uint8List? get webBytes => metadata?['bytes'] as Uint8List?;
 
   /// 复制并更新属性
   MediaFileInfo copyWith({
