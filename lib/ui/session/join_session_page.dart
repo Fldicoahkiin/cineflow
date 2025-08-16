@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../session/p2p_connection_manager.dart';
 import '../../session/loopback_service.dart';
 import '../../player/player_controller.dart';
+import '../../core/logger_service.dart';
 import '../../core/file_service.dart';
 
 class JoinSessionPage extends StatefulWidget {
@@ -19,7 +20,8 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
   final _urlCtrl = TextEditingController(text: 'ws://localhost:8080');
   final _sessionIdCtrl = TextEditingController();
   final _mediaCtrl = TextEditingController();
-  final List<String> _logs = [];
+  List<LogEntry> _logs = [];
+  late final Function(LogEntry) _logListener;
   
   P2PConnectionManager? _p2pManager;
   P2PConnectionState _connectionState = P2PConnectionState.idle;
@@ -49,9 +51,8 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
       
       setState(() {
         _loopReady = true;
-        _logs.clear();
       });
-      _logs.add('环回服务已建立');
+      Log.i('LoopbackService', '环回服务已建立');
       
       _loop?.onRtt = (receiver, rttMs) {
         if (mounted) {
@@ -81,7 +82,7 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
 
   void _sendA() {
     // 发送测试消息 - 根据实际LoopbackService API调整
-    _logs.add('发送测试消息');
+    Log.i('LoopbackService', '发送测试消息');
     setState(() {});
   }
 
@@ -238,6 +239,22 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
   @override
   void initState() {
     super.initState();
+    
+    // 设置日志监听器
+    _logListener = (LogEntry entry) {
+      if (mounted) {
+        setState(() {
+          _logs = LoggerService.instance.getLogs(limit: 100);
+        });
+      }
+    };
+    LoggerService.instance.addListener(_logListener);
+    
+    // 初始化日志列表
+    _logs = LoggerService.instance.getLogs(limit: 100);
+    
+    Log.i('JoinSessionPage', 'Page initialized');
+    
     _initFileService();
   }
   
@@ -249,6 +266,10 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
   
   @override
   void dispose() {
+    LoggerService.instance.removeListener(_logListener);
+    _urlCtrl.dispose();
+    _sessionIdCtrl.dispose();
+    _mediaCtrl.dispose();
     _posSub?.cancel();
     _playSub?.cancel();
     _fileEventSub?.cancel();
@@ -256,6 +277,7 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
     _loop?.dispose();
     _player?.dispose();
     _fileService?.dispose();
+    Log.i('JoinSessionPage', 'Page disposed');
     super.dispose();
   }
 
@@ -697,14 +719,16 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
                   : ListView.builder(
                       itemCount: _logs.length,
                       itemBuilder: (context, index) {
+                        final log = _logs[index];
+                        final color = _getLogColor(log.level, context);
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           child: Text(
-                            _logs[index],
+                            log.toString(),
                             style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 12,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: color,
                             ),
                           ),
                         );
@@ -715,5 +739,34 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
         ),
       ),
     );
+  }
+
+  Color _getLogColor(LogLevel level, BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    switch (level) {
+      case LogLevel.debug:
+        return colorScheme.outline;
+      case LogLevel.info:
+        return colorScheme.primary;
+      case LogLevel.warning:
+        return Colors.orange;
+      case LogLevel.error:
+        return colorScheme.error;
+      case LogLevel.fatal:
+        return Colors.red[800]!;
+    }
+  }
+
+  Future<void> _exportLogs() async {
+    try {
+      final path = await LoggerService.instance.exportLogs();
+      if (path != null && mounted) {
+        _showSnackBar('日志已导出到: $path');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('导出失败: $e', isError: true);
+      }
+    }
   }
 }

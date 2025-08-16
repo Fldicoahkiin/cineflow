@@ -3,19 +3,28 @@ import 'package:media_kit/media_kit.dart';
 
 import 'core/app_manager.dart';
 import 'core/state_service.dart';
+import 'core/logger_service.dart';
+import 'l10n/app_localizations.dart';
 import 'ui/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // 初始化日志系统
+  await LoggerService.instance.initialize();
+  Log.i('Main', 'CineFlow application starting');
+  
   // 初始化MediaKit
   MediaKit.ensureInitialized();
+  Log.i('Main', 'MediaKit initialized');
   
   // 初始化应用管理器
   try {
     await AppManager.instance.initialize();
+    Log.i('Main', 'AppManager initialized successfully');
     runApp(const CineFlowApp());
-  } catch (e) {
+  } catch (e, stackTrace) {
+    Log.e('Main', 'Failed to initialize AppManager', data: {'error': e.toString()}, stackTrace: stackTrace);
     // 如果初始化失败，显示错误页面
     runApp(CineFlowErrorApp(error: e.toString()));
   }
@@ -92,6 +101,8 @@ class _CineFlowAppState extends State<CineFlowApp> {
       title: 'CineFlow',
       theme: _buildTheme(_currentTheme),
       locale: _buildLocale(_currentLanguage),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: const HomeScreen(),
       builder: (context, child) {
         return MediaQuery(

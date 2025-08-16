@@ -24,17 +24,24 @@
 - **文件处理**: file_picker + path 文件管理
 - **网络**: web_socket_channel WebSocket 连接
 - **UI设计**: Material Design 3.0 设计语言
+- **国际化**: flutter_localizations + intl
+- **日志系统**: 自定义日志服务 + path_provider
 
 ## 项目结构
 
 ```
 lib/
-  core/              # 核心服务（状态管理、文件服务、应用管理）
+  core/              # 核心服务（状态管理、文件服务、应用管理、日志系统）
+  l10n/              # 国际化语言包（中文、英文）
   network/           # 网络通信（信令客户端、消息协议）
   session/           # 会话管理（P2P连接、环回服务）
   player/            # 播放器控制
   ui/                # 用户界面
+    session/         # 会话相关页面（加入会话、日志查看）
   main.dart          # 应用入口
+test/
+  unit/              # 单元测试
+  integration/       # 集成测试
 ```
 
 ## 快速开始
@@ -72,6 +79,10 @@ flutter run
 - ✅ 会话管理系统
 - ✅ Material Design 3.0 UI 重构
 - ✅ 代码质量优化和清理
+- ✅ 完整日志系统实现
+- ✅ 国际化语言支持（中文/英文）
+- ✅ 跨平台构建文档
+- ✅ 单元测试和集成测试
 - 🚧 同步播放控制
 - 📋 跨平台测试优化
 
@@ -94,14 +105,65 @@ CineFlow 采用 **Material Design 3.0** 设计语言，确保在所有平台上�
 ### 参考设计
 UI 设计参考了 [LocalSend](https://localsend.org/) 的简洁风格，结合 P2P 应用的特点进行优化。
 
+## 国际化支持
+
+CineFlow 内置完整的国际化支持系统，方便开发者贡献多语言翻译：
+
+### 当前支持语言
+- **中文 (zh)** - 默认语言
+- **英文 (en)** - 完整支持
+
+### 添加新语言
+1. 在 `lib/l10n/` 目录下创建新的语言文件，如 `app_localizations_ja.dart`
+2. 继承 `AppLocalizations` 类并实现所有抽象方法
+3. 在 `app_localizations.dart` 中添加新语言到 `supportedLocales` 和 `lookupAppLocalizations`
+4. 提交 Pull Request
+
+### 翻译指南
+- 保持术语一致性（如 "P2P连接" 在所有上下文中使用相同翻译）
+- 考虑目标语言的文化背景和使用习惯
+- 确保UI文本长度适合界面布局
+
+## 日志系统
+
+完整的日志系统支持开发调试和问题排查：
+
+### 功能特性
+- **多级别日志**: Debug、Info、Warning、Error、Fatal
+- **实时查看**: 内置日志查看器，支持筛选和搜索
+- **文件存储**: 自动保存到本地文件，支持导出
+- **性能优化**: 内存限制和自动清理机制
+
+### 使用方法
+```dart
+import 'package:cineflow/core/logger_service.dart';
+
+// 使用便捷方法
+Log.i('Tag', '信息日志');
+Log.w('Tag', '警告日志');
+Log.e('Tag', '错误日志', data: {'error': 'details'});
+
+// 或直接使用服务
+LoggerService.instance.info('Tag', '消息', data: {'key': 'value'});
+```
+
+## 构建和部署
+
+详细的跨平台构建指南请查看 `PLATFORM_BUILD_GUIDE.md` 文件，包含：
+- 环境配置要求
+- 平台特定构建步骤
+- CI/CD 配置示例
+- 发布流程指导
+
 ## 后续拓展
 
-- 会话密码
-- 多人讨论
-- 视频预下载（主持人设置下载链接或用户配置中转服务器）
-- 字幕同步
-- 倍速播放
+- 会话密码保护
+- 多人语音讨论
+- 视频预下载（主持人设置下载链接）
+- 字幕文件同步
+- 倍速播放同步
 - 更多播放格式和协议支持
+- 更多语言翻译
 
 ## 任务清单
 
