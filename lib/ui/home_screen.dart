@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import 'session/join_session_page.dart';
 
 /// 首页占位页面（最小可运行）。
@@ -17,7 +18,7 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('欢迎使用 CineFlow'),
+            Text(AppLocalizations.of(context)?.welcome ?? 'Welcome to CineFlow'),
             const SizedBox(height: 12),
             FilledButton(
               onPressed: () {
@@ -25,7 +26,7 @@ class HomeScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const JoinSessionPage()),
                 );
               },
-              child: const Text('创建/加入会话'),
+              child: Text(AppLocalizations.of(context)?.createJoinSession ?? 'Create/Join Session'),
             ),
           ],
         ),

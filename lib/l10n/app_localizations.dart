@@ -8,11 +8,11 @@ import 'package:intl/intl.dart' as intl;
 import 'app_localizations_en.dart';
 import 'app_localizations_zh.dart';
 
-/// Callers can lookup localized strings with Localizations.of<AppLocalizations>(context)!.
+/// Callers can lookup localized strings with Localizations.of<AppLocalizations>(context).
 ///
 /// Applications need to include `AppLocalizations.delegate()` in their app's
-/// `localizationsDelegates` list, and the locales they support in the app's
-/// `supportedLocales` list. For example:
+/// localizationDelegates list, and the locales they support in the app's
+/// supportedLocales list. For example:
 ///
 /// ```dart
 /// import 'l10n/app_localizations.dart';
@@ -56,8 +56,8 @@ import 'app_localizations_zh.dart';
 /// Select and expand the newly-created Localizations item then, for each
 /// locale your application supports, add a new item and select the locale
 /// you wish to add from the pop-up menu in the Value field. This list should
-/// be consistent with the languages listed in the AppLocalizations.supportedLocales
-/// property.
+/// be consistent with the languages listed in the supportedLocales parameter
+/// of your application's MaterialApp.
 abstract class AppLocalizations {
   AppLocalizations(String locale) : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
@@ -105,6 +105,7 @@ abstract class AppLocalizations {
   // P2P Connection
   String get p2pConnection;
   String get signalingServer;
+  String get signalingServerUrl;
   String get signalingServerHint;
   String get sessionId;
   String get sessionIdHint;
@@ -122,54 +123,85 @@ abstract class AppLocalizations {
   String get mediaPlayer;
   String get mediaPath;
   String get selectFile;
+  String get selectMediaFile;
   String get loadMedia;
   String get play;
   String get pause;
+  String get stop;
+  String get seek;
+  String get rate;
+  String get volume;
+  String get position;
+  String get duration;
   String get playerStatus;
   String get notLoaded;
   String get loaded;
   String get playing;
   String get paused;
+  String get noMediaSelected;
+  String get mediaLoadFailed;
+  String get playbackControlFailed;
 
   // Loopback Test
   String get loopbackTest;
   String get startTest;
+  String get sendTest;
   String get stopTest;
   String get rttDisplay;
   String get testStatus;
   String get testReady;
   String get testRunning;
   String get testStopped;
+  String get loopbackTestStarted;
+  String get loopbackTestStopped;
+  String get loopbackTestPassed;
+  String get loopbackTestFailed;
+  String get loopbackTestStartFailed;
+  String get loopbackTestStopFailed;
+
+  // Sync Playback
+  String get syncPlayback;
+  String get syncEnabled;
+  String get syncDisabled;
+  String get hostRole;
+  String get participantRole;
+  String get networkDelay;
+  String get syncPlay;
+  String get syncPause;
+  String get syncSeek;
+  String get syncRate;
+  String get syncCommandSent;
+  String get syncCommandReceived;
+  String get syncCommandExecuted;
+  String get syncCommandFailed;
+  String get syncSessionStarted;
+  String get syncSessionStopped;
+  String get syncSessionJoined;
+  String get syncSessionLeft;
+  String get syncStateConnected;
+  String get syncStateDisconnected;
+  String get syncStateSyncing;
+  String get syncStateError;
 
   // System Log
   String get systemLog;
+  String get systemLogs;
   String get clearLogs;
   String get exportLogs;
   String get noLogs;
+  String get noLogsAvailable;
   String get autoScroll;
-
-  // Messages
-  String get pleaseEnterSignalingServer;
-  String get pleaseSelectMediaFile;
-  String get pleaseLoadMediaFirst;
-  String get sessionCreatedSuccess;
-  String get sessionJoinedSuccess;
-  String get disconnectedSuccess;
-  String get mediaLoadedSuccess;
-  String get loopbackTestStarted;
-  String get loopbackTestStopped;
-  String get logsExported;
-  String get exportFailed;
-
-  // Errors
-  String get sessionCreateFailed;
-  String get sessionJoinFailed;
-  String get disconnectFailed;
-  String get fileSelectionFailed;
-  String get mediaLoadFailed;
-  String get playbackControlFailed;
-  String get loopbackTestStartFailed;
-  String get loopbackTestStopFailed;
+  String get all;
+  String get totalLogs;
+  String get logs;
+  String get filterLevel;
+  String get copyPath;
+  String get timestamp;
+  String get level;
+  String get tag;
+  String get message;
+  String get data;
+  String get stackTrace;
 
   // Log Levels
   String get logLevelDebug;
@@ -177,6 +209,47 @@ abstract class AppLocalizations {
   String get logLevelWarning;
   String get logLevelError;
   String get logLevelFatal;
+
+  // Messages
+  String get pleaseEnterSignalingServer;
+  String get pleaseSelectMediaFile;
+  String get pleaseLoadMediaFirst;
+  String get sessionCreatedSuccess;
+  String get disconnectedSuccess;
+  String get sessionJoinedSuccess;
+  String get mediaLoadedSuccess;
+  String get exportedTo;
+  String get exportFailed;
+  String get clearLogsTitle;
+  String get clearLogsConfirm;
+  String get copiedToClipboard;
+  String get welcome;
+  String get createJoinSession;
+
+  // Error Messages
+  String get error_syncCommandFailed;
+  String get error_syncHeartbeatFailed;
+  String get error_syncNetworkLatencyHigh;
+  String get error_disconnectFailed;
+  String get sessionCreateFailed;
+  String get error_createSessionFailed;
+  String get error_joinSessionFailed;
+  String get error_loopbackFailed;
+  String get mediaLoading;
+
+  // Additional Sync Properties
+  String get playbackProgress;
+  String get syncState;
+  String get syncRole;
+  String get syncHost;
+  String get syncParticipant;
+  String get syncLatency;
+  String get syncPeerStates;
+  String get syncConnected;
+  String get syncSyncing;
+  String get syncError;
+  String get syncDisconnected;
+  String get syncIdle;
 
   // Common
   String get ok;
@@ -187,6 +260,10 @@ abstract class AppLocalizations {
   String get copy;
   String get delete;
   String get save;
+  String get edit;
+  String get settings;
+  String get help;
+  String get about;
   String get load;
 }
 
@@ -206,6 +283,8 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
+
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
     case 'en': return AppLocalizationsEn();
@@ -215,6 +294,6 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
   throw FlutterError(
     'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
     'an issue with the localizations generation tool. Please file an issue on GitHub with a '
-    'reproducible sample app and the gen-l10n configuration that was used.'
+    'reproducible example app and the exact error message you are seeing.'
   );
 }

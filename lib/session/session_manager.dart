@@ -29,6 +29,7 @@ class SessionManager {
 
   // 事件回调
   void Function(RTCDataChannelMessage message)? onDataMessage;
+  void Function(RTCDataChannelMessage message)? onDataReceived;
   void Function(RTCPeerConnectionState state)? onConnectionStateChanged;
   void Function(RTCPeerConnection pc, RTCIceCandidate candidate)? onIceCandidate;
   void Function(RTCDataChannelState state)? onDataChannelState;
@@ -132,6 +133,7 @@ class SessionManager {
     channel.onMessage = (msg) {
       if (!_isDisposed) {
         onDataMessage?.call(msg);
+        onDataReceived?.call(msg);
       }
     };
     
@@ -415,6 +417,7 @@ class SessionManager {
     
     // 清理回调
     onDataMessage = null;
+    onDataReceived = null;
     onConnectionStateChanged = null;
     onIceCandidate = null;
     onDataChannelState = null;

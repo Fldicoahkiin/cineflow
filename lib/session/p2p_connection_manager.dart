@@ -35,6 +35,9 @@ class P2PConnectionManager {
   void Function(RTCDataChannelMessage message, String fromPeerId)? onDataMessage;
   void Function(P2PConnectionException error)? onError;
 
+  /// 获取会话管理器
+  SessionManager? get sessionManager => _sessionManager;
+
   /// 作为主持人创建会话
   Future<String> createSession() async {
     if (_isDisposed) throw StateError('P2PConnectionManager已被释放');

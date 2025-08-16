@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
+import 'package:intl/intl.dart';
+// import 'package:share_plus/share_plus.dart'; // Removed - not in dependencies
 import '../../core/logger_service.dart';
+import '../../l10n/app_localizations.dart';
 
 class LogViewerPage extends StatefulWidget {
   const LogViewerPage({super.key});
@@ -116,13 +118,13 @@ class _LogViewerPageState extends State<LogViewerPage> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('日志已导出到: $path')),
+                Expanded(child: Text('${AppLocalizations.of(context)?.exportedTo ?? 'Logs exported to'}: $path')),
               ],
             ),
             backgroundColor: Colors.green[600],
             behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
-              label: '复制路径',
+              label: AppLocalizations.of(context)?.copyPath ?? 'Copy Path',
               textColor: Colors.white,
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: path));
@@ -135,7 +137,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('导出失败: $e'),
+            content: Text('${AppLocalizations.of(context)?.exportFailed ?? 'Export failed'}: $e'),
             backgroundColor: Colors.red[600],
           ),
         );
@@ -147,19 +149,19 @@ class _LogViewerPageState extends State<LogViewerPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空日志'),
-        content: const Text('确定要清空所有日志吗？此操作不可撤销。'),
+        title: Text(AppLocalizations.of(context)?.clearLogsTitle ?? 'Clear Logs'),
+        content: Text(AppLocalizations.of(context)?.clearLogsConfirm ?? 'Are you sure you want to clear all logs? This action cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(AppLocalizations.of(context)?.cancel ?? 'Cancel'),
           ),
           FilledButton(
             onPressed: () {
               LoggerService.instance.clearLogs();
               Navigator.pop(context);
             },
-            child: const Text('确定'),
+            child: Text(AppLocalizations.of(context)?.confirm ?? 'Confirm'),
           ),
         ],
       ),
@@ -172,21 +174,21 @@ class _LogViewerPageState extends State<LogViewerPage> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('系统日志'),
+        title: Text(AppLocalizations.of(context)?.systemLogs ?? 'System Logs'),
         actions: [
           IconButton(
             onPressed: _exportLogs,
             icon: const Icon(Icons.download),
-            tooltip: '导出日志',
+            tooltip: AppLocalizations.of(context)?.exportLogs ?? 'Export Logs',
           ),
           IconButton(
             onPressed: _clearLogs,
             icon: const Icon(Icons.clear_all),
-            tooltip: '清空日志',
+            tooltip: AppLocalizations.of(context)?.clearLogs ?? 'Clear Logs',
           ),
           PopupMenuButton<LogLevel?>(
             icon: const Icon(Icons.filter_list),
-            tooltip: '筛选级别',
+            tooltip: AppLocalizations.of(context)?.filterLevel ?? 'Filter Level',
             onSelected: (level) {
               setState(() {
                 _filterLevel = level;
@@ -194,9 +196,9 @@ class _LogViewerPageState extends State<LogViewerPage> {
               _refreshLogs();
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: null,
-                child: Text('全部'),
+                child: Text(AppLocalizations.of(context)?.all ?? 'All'),
               ),
               ...LogLevel.values.map((level) => PopupMenuItem(
                 value: level,
@@ -246,7 +248,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
             child: Row(
               children: [
                 Text(
-                  '共 ${_logs.length} 条日志',
+                  '${AppLocalizations.of(context)?.totalLogs ?? 'Total'} ${_logs.length} ${AppLocalizations.of(context)?.logs ?? 'logs'}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const Spacer(),
@@ -260,7 +262,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '自动滚动',
+                  AppLocalizations.of(context)?.autoScroll ?? 'Auto Scroll',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -281,11 +283,8 @@ class _LogViewerPageState extends State<LogViewerPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          '暂无日志',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.outline,
-                            fontSize: 16,
-                          ),
+                          AppLocalizations.of(context)?.noLogsAvailable ?? 'No logs available',
+                          style: Theme.of(context).textTheme.bodyLarge,
                         ),
                       ],
                     ),
@@ -413,13 +412,13 @@ class _LogViewerPageState extends State<LogViewerPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDetailRow('时间', log.timestamp.toString()),
-              _buildDetailRow('标签', log.tag),
-              _buildDetailRow('消息', log.message),
+              _buildDetailRow(AppLocalizations.of(context)?.timestamp ?? 'Timestamp', DateFormat('yyyy-MM-dd HH:mm:ss').format(log.timestamp)),
+              _buildDetailRow(AppLocalizations.of(context)?.tag ?? 'Tag', log.tag),
+              _buildDetailRow(AppLocalizations.of(context)?.message ?? 'Message', log.message),
               if (log.data != null)
-                _buildDetailRow('数据', log.data.toString()),
+                _buildDetailRow(AppLocalizations.of(context)?.data ?? 'Data', log.data.toString()),
               if (log.stackTrace != null)
-                _buildDetailRow('堆栈跟踪', log.stackTrace.toString()),
+                _buildDetailRow(AppLocalizations.of(context)?.stackTrace ?? 'Stack Trace', log.stackTrace.toString()),
             ],
           ),
         ),
@@ -429,14 +428,14 @@ class _LogViewerPageState extends State<LogViewerPage> {
               Clipboard.setData(ClipboardData(text: log.toString()));
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已复制到剪贴板')),
+                SnackBar(content: Text(AppLocalizations.of(context)?.copiedToClipboard ?? 'Copied to clipboard')),
               );
             },
-            child: const Text('复制'),
+            child: Text(AppLocalizations.of(context)?.copy ?? 'Copy'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
+            child: Text(AppLocalizations.of(context)?.close ?? 'Close'),
           ),
         ],
       ),
