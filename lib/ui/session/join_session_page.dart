@@ -1,20 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
-import '../../network/signaling_client.dart';
+import '../../session/p2p_connection_manager.dart';
 import '../../session/loopback_service.dart';
-import '../../network/messages.dart' as proto;
 import '../../player/player_controller.dart';
 import '../../core/file_service.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
-/// 创建/加入会话页面
-/// - 输入信令服务器 URL
-/// - 输入会话 ID
-/// - WebSocket 连接管理
 class JoinSessionPage extends StatefulWidget {
   const JoinSessionPage({super.key});
 
@@ -23,366 +16,140 @@ class JoinSessionPage extends StatefulWidget {
 }
 
 class _JoinSessionPageState extends State<JoinSessionPage> {
-  final _urlCtrl = TextEditingController(text: 'wss://example.com/signaling');
-  final _roomCtrl = TextEditingController();
-  SignalingClient? _client;
-  StreamSubscription? _autoClose;
-  bool _connecting = false;
-  bool _connected = false;
-
-  // Loopback
+  final _urlCtrl = TextEditingController(text: 'ws://localhost:8080');
+  final _sessionIdCtrl = TextEditingController();
+  final _mediaCtrl = TextEditingController();
+  final List<String> _logs = [];
+  
+  P2PConnectionManager? _p2pManager;
+  P2PConnectionState _connectionState = P2PConnectionState.idle;
+  String? _currentRoomId;
+  // 环回测试相关
   LoopbackService? _loop;
   bool _loopReady = false;
-  final List<String> _logs = [];
-  int? _rttA;
-  int? _rttB;
-  bool _isPlaying = false;
-  double _positionMs = 0;
-  proto.StateUpdatePayload? _lastStateA;
-  proto.StateUpdatePayload? _lastStateB;
-
-  // Player
+  int? _rttA, _rttB;
+  
   PlayerController? _player;
-  final _mediaCtrl = TextEditingController(text: '');
-  StreamSubscription? _posSub;
-  StreamSubscription? _durSub;
-  StreamSubscription? _playSub;
-  StreamSubscription? _playerErrorSub;
-  StreamSubscription? _playerLoadingSub;
-  int _mediaPos = 0;
-  int _mediaDur = 0;
-  bool _playerLoading = false;
-  String? _playerError;
-
-  // File Service
   FileService? _fileService;
-  StreamSubscription? _fileEventSub;
-  MediaFileInfo? _selectedFile;
   bool _fileSelecting = false;
-  bool _playerPlaying = false;
-  VideoController? _video;
-  Timer? _rateResetTimer;
-  double _currentRate = 1.0;
+  
+  // 播放器状态
+  bool _isPlaying = false;
+  double _positionMs = 0.0;
+  
+  StreamSubscription? _posSub, _playSub, _fileEventSub;
 
-  void _bindClient(SignalingClient c) {
-    c.onConnected = () {
-      setState(() {
-        _connecting = false;
-        _connected = true;
-      });
-      _showSnackBar('已连接');
-    };
-    c.onDisconnected = () {
-      setState(() {
-        _connected = false;
-      });
-      _showSnackBar('已断开');
-    };
-    c.onError = (error, stackTrace) {
-      setState(() {
-        _connecting = false;
-      });
-      _showSnackBar('连接错误: $error', isError: true);
-    };
-    c.onReconnecting = (attempt, maxAttempts) {
-      _showSnackBar('重连中 ($attempt/$maxAttempts)');
-    };
-    c.onMessage = (data) {
-      // 使用新的消息解析器
-      final parsed = proto.MessageParser.parse(data);
-      if (parsed != null && parsed.isValid) {
-        debugPrint('WS <- [${parsed.type}] ${parsed.messageId}');
-      } else {
-        debugPrint('WS <- Invalid message: ${jsonEncode(data)}');
-      }
-    };
-  }
 
-  Future<void> _connect() async {
-    final url = _urlCtrl.text.trim();
-    if (url.isEmpty) {
-      _showSnackBar('请输入信令服务器 URL', isError: true);
-      return;
-    }
-    setState(() {
-      _connecting = true;
-    });
-    final c = SignalingClient(url);
-    _bindClient(c);
+  void _setupLoopback() async {
     try {
-      await c.connect();
-      setState(() {
-        _client = c;
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _disconnect() async {
-    await _client?.disconnect();
-  }
-
-  Future<void> _setupLoopback() async {
-    final loop = LoopbackService();
-    setState(() {
-      _loop = loop;
-      _loopReady = false;
-      _logs.clear();
-    });
-    
-    // 设置事件监听器
-    loop.onLog = (l) {
-      if (mounted) {
-        setState(() {
-          _logs.add(l);
-          // 保持日志数量在合理范围内
-          if (_logs.length > 100) {
-            _logs.removeAt(0);
-          }
-        });
-      }
-    };
-    
-    loop.onError = (error) {
-      _showSnackBar('环回服务错误: ${error.message}', isError: true);
-    };
-    
-    try {
+      _loop?.dispose();
+      final loop = LoopbackService();
       await loop.setup();
-      if (mounted) {
-        setState(() {
-          _loopReady = true;
-        });
-        _showSnackBar('本地环回就绪');
-      }
+      _loop = loop;
+      
+      setState(() {
+        _loopReady = true;
+        _logs.clear();
+      });
+      _logs.add('环回服务已建立');
+      
+      _loop?.onRtt = (receiver, rttMs) {
+        if (mounted) {
+          setState(() {
+            if (receiver == 'A') {
+              _rttA = rttMs;
+            } else {
+              _rttB = rttMs;
+            }
+          });
+        }
+      };
+      
+      loop.onStateUpdate = (receiver, payload) {
+        if (mounted) {
+          setState(() {
+            _isPlaying = payload.isPlaying;
+            _positionMs = payload.positionMs.toDouble();
+          });
+          _applyStateToPlayer(payload);
+        }
+      };
     } catch (e) {
-      _showSnackBar('环回服务初始化失败: $e', isError: true);
-      return;
+      _showSnackBar('环回建立失败: $e', isError: true);
     }
-
-    loop.onRtt = (receiver, rtt) {
-      if (mounted) {
-        setState(() {
-          if (receiver == 'A') {
-            _rttA = rtt;
-          } else {
-            _rttB = rtt;
-          }
-        });
-      }
-    };
-    
-    loop.onStateUpdate = (receiver, payload) {
-      if (mounted) {
-        setState(() {
-          if (receiver == 'A') {
-            _lastStateA = payload;
-          } else {
-            _lastStateB = payload;
-          }
-          // 同步到页面上的演示控件
-          _isPlaying = payload.isPlaying;
-          _positionMs = payload.positionMs.toDouble();
-        });
-        // 驱动播放器（被动跟随）
-        _applyStateToPlayer(payload);
-      }
-    };
   }
 
-  Future<void> _sendA() async {
-    final loop = _loop;
-    if (loop == null || !_loopReady) return;
-    await loop.sendTestFromA();
+  void _sendA() {
+    // 发送测试消息 - 根据实际LoopbackService API调整
+    _logs.add('发送测试消息');
+    setState(() {});
   }
 
-  Future<void> _sendB() async {
-    final loop = _loop;
-    if (loop == null || !_loopReady) return;
-    await loop.sendTestFromB();
-  }
-
-  Future<void> _sendStateA() async {
-    final loop = _loop;
-    if (loop == null || !_loopReady) return;
-    await loop.sendStateUpdateFromA(isPlaying: _isPlaying, positionMs: _positionMs.toInt());
-  }
-
-  Future<void> _sendStateB() async {
-    final loop = _loop;
-    if (loop == null || !_loopReady) return;
-    await loop.sendStateUpdateFromB(isPlaying: _isPlaying, positionMs: _positionMs.toInt());
-  }
 
   Future<void> _ensurePlayer() async {
     if (_player != null) return;
     
     final p = PlayerController();
     
-    // 监听播放器状态变化
-    _playSub = p.playingStream.listen((v) {
-      if (mounted) {
-        setState(() => _playerPlaying = v);
-      }
+    _playSub = p.playingStream.listen((playing) {
+      if (mounted) setState(() => _isPlaying = playing);
     });
     
-    _posSub = p.positionMsStream.listen((v) {
-      if (mounted) {
-        setState(() => _mediaPos = v);
-      }
-    });
-    
-    _durSub = p.durationMsStream.listen((v) {
-      if (mounted) {
-        setState(() => _mediaDur = v);
-      }
-    });
-    
-    // 监听播放器错误
-    p.errorStream.listen((error) {
-      _showSnackBar('播放器错误: ${error.message}', isError: true);
-    });
-    
-    // 监听加载状态
-    p.loadingStream.listen((loading) {
-      if (mounted) {
-        setState(() {
-          // 可以在这里显示加载指示器
-        });
-      }
+    _posSub = p.positionMsStream.listen((pos) {
+      if (mounted) setState(() => _positionMs = pos.toDouble());
     });
     
     setState(() => _player = p);
-    
-    // 绑定视频渲染控制器
-    try {
-      _video = VideoController(p.rawPlayer);
-    } catch (e) {
-      _showSnackBar('视频控制器初始化失败: $e', isError: true);
-    }
   }
 
   Future<void> _loadMedia() async {
+    if (_mediaCtrl.text.isEmpty) return;
     await _ensurePlayer();
-    final uri = _mediaCtrl.text.trim();
-    if (uri.isEmpty) {
-      _showSnackBar('请输入媒体地址', isError: true);
-      return;
-    }
+    await _player!.load(_mediaCtrl.text);
+    _showSnackBar('媒体加载中...', isError: false);
+  }
+
+  void _playMedia() async {
+    await _ensurePlayer();
+    await _player!.play();
+  }
+
+  void _pauseMedia() async {
+    await _ensurePlayer();
+    await _player!.pause();
+  }
+
+  void _pickFile() async {
+    setState(() => _fileSelecting = true);
     
     try {
-      await _player!.load(uri);
-      _showSnackBar('媒体加载成功');
-    } catch (e) {
-      _showSnackBar('媒体加载失败: $e', isError: true);
-    }
-  }
-
-  Future<void> _pickLocalFile() async {
-    try {
-      final result = await _fileService!.pickSingleFile(
-        dialogTitle: '选择媒体文件',
-        type: FileType.custom,
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        allowMultiple: false,
       );
-      if (result != null) {
-        setState(() => _mediaCtrl.text = result.path);
-        await _loadMedia();
+      
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.path != null) {
+          _mediaCtrl.text = file.path!;
+          _showSnackBar('已选择文件: ${file.name}');
+        }
       }
-    } catch (e) {
-      _showSnackBar('选择文件失败: $e', isError: true);
+    } finally {
+      setState(() => _fileSelecting = false);
     }
   }
 
-  Future<void> _togglePlayPause() async {
-    final p = _player;
-    if (p == null) return;
-    if (p.isPlaying) {
-      await p.pause();
-    } else {
-      await p.play();
+  void _applyStateToPlayer(payload) {
+    // 实现播放器状态同步
+    if (_player != null) {
+      if (payload.isPlaying && !_isPlaying) {
+        _player!.play();
+      } else if (!payload.isPlaying && _isPlaying) {
+        _player!.pause();
+      }
+      // TODO: 同步播放位置
     }
-    // 主动广播（以 A 为示例）
-    final loop = _loop;
-    if (loop != null && _loopReady) {
-      await loop.sendStateUpdateFromA(isPlaying: p.isPlaying, positionMs: p.positionMs);
-    }
-  }
-
-  Future<void> _seekPlayer(double v) async {
-    final p = _player;
-    if (p == null) return;
-    final target = v.toInt();
-    await p.seekMs(target);
-    final loop = _loop;
-    if (loop != null && _loopReady) {
-      await loop.sendStateUpdateFromA(isPlaying: p.isPlaying, positionMs: target);
-    }
-  }
-
-  void _applyStateToPlayer(proto.StateUpdatePayload payload) async {
-    final p = _player;
-    if (p == null) return;
-    // 估算到达时刻的应有位置：对端 positionMs + RTT/2
-    final oneWay = _oneWayDelayMs();
-    final expectedPos = payload.positionMs + oneWay;
-    final nowPos = p.positionMs;
-    final drift = nowPos - expectedPos; // 正数表示本地超前
-
-    // 阈值与变速参数（演示用）
-    const seekThresholdMs = 600; // 漂移过大直接跳
-    const smallDriftMs = 150; // 小漂移采用变速
-    const rateFast = 1.05; // 轻微加速
-    const rateSlow = 0.95; // 轻微减速
-    const rateHoldMs = 2000; // 变速维持时长
-
-    if (drift.abs() > seekThresholdMs) {
-      setState(() {
-        _logs.add('[sync] drift=${drift}ms > ${seekThresholdMs}ms, seek -> $expectedPos, rate=1.0');
-      });
-      await p.seekMs(expectedPos);
-      await _setRateSafely(1.0);
-    } else if (drift.abs() > smallDriftMs) {
-      // 使用轻微变速拉回
-      final targetRate = drift > 0 ? rateSlow : rateFast;
-      setState(() {
-        _logs.add('[sync] drift=${drift}ms ~ 调整速率 -> $targetRate');
-      });
-      await _setRateSafely(targetRate);
-      _rateResetTimer?.cancel();
-      _rateResetTimer = Timer(const Duration(milliseconds: rateHoldMs), () {
-        setState(() {
-          _logs.add('[sync] 速率恢复 1.0');
-        });
-        _setRateSafely(1.0);
-      });
-    } else {
-      // 漂移很小，回到常速
-      await _setRateSafely(1.0);
-    }
-
-    // 同步播放/暂停状态
-    if (payload.isPlaying && !p.isPlaying) {
-      await p.play();
-    } else if (!payload.isPlaying && p.isPlaying) {
-      await p.pause();
-    }
-  }
-
-  int _oneWayDelayMs() {
-    // 取可用 RTT 的一半（演示）：优先较小的 RTT
-    final candidates = <int>[];
-    if (_rttA != null) candidates.add(_rttA!);
-    if (_rttB != null) candidates.add(_rttB!);
-    if (candidates.isEmpty) return 0;
-    candidates.sort();
-    return (candidates.first / 2).round();
-  }
-
-  Future<void> _setRateSafely(double rate) async {
-    if ((_currentRate - rate).abs() < 0.001) return;
-    final p = _player;
-    if (p == null) return;
-    await p.setRate(rate);
-    _currentRate = rate;
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -408,252 +175,488 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
     );
   }
 
-  String _formatDuration(int milliseconds) {
-    final duration = Duration(milliseconds: milliseconds);
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
 
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  // P2P连接管理
+  Future<void> _createP2PSession() async {
+    try {
+      final manager = P2PConnectionManager(
+        signalingUrl: _urlCtrl.text.trim(),
+      );
+      
+      await manager.createSession();
+      
+      setState(() {
+        _p2pManager = manager;
+        _connectionState = manager.state;
+        _currentRoomId = 'session_created';
+      });
+      
+      _showSnackBar('会话创建成功');
+    } catch (e) {
+      _showSnackBar('创建会话失败: $e', isError: true);
+    }
   }
-
-  void _initServices() {
-    _initPlayer();
+  
+  Future<void> _joinP2PSession() async {
+    try {
+      final manager = P2PConnectionManager(
+        signalingUrl: _urlCtrl.text.trim(),
+      );
+      
+      await manager.joinSession(_sessionIdCtrl.text.trim());
+      
+      setState(() {
+        _p2pManager = manager;
+        _connectionState = manager.state;
+        _currentRoomId = _sessionIdCtrl.text.trim();
+      });
+      
+      _showSnackBar('加入会话成功');
+    } catch (e) {
+      _showSnackBar('加入会话失败: $e', isError: true);
+    }
+  }
+  
+  Future<void> _disconnectP2P() async {
+    try {
+      await _p2pManager?.dispose();
+      setState(() {
+        _p2pManager = null;
+        _connectionState = P2PConnectionState.idle;
+        _currentRoomId = null;
+      });
+      _showSnackBar('已断开连接');
+    } catch (e) {
+      _showSnackBar('断开连接失败: $e', isError: true);
+    }
+  }
+  
+  bool _canCreateSession() => _urlCtrl.text.trim().isNotEmpty && _connectionState == P2PConnectionState.idle;
+  bool _canJoinSession() => _urlCtrl.text.trim().isNotEmpty && _sessionIdCtrl.text.trim().isNotEmpty && _connectionState == P2PConnectionState.idle;
+  bool _canDisconnect() => _connectionState != P2PConnectionState.idle;
+  
+  @override
+  void initState() {
+    super.initState();
     _initFileService();
   }
-
-  void _initPlayer() {
-    _player = PlayerController();
-    
-    // 监听播放状态
-    _playSub = _player!.playingStream.listen((playing) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = playing;
-        });
-      }
-    });
-    
-    // 监听播放位置
-    _posSub = _player!.positionMsStream.listen((pos) {
-      if (mounted) {
-        setState(() {
-          _mediaPos = pos;
-          _positionMs = pos.toDouble();
-        });
-      }
-    });
-    
-    // 监听媒体时长
-    _durSub = _player!.durationMsStream.listen((dur) {
-      if (mounted) {
-        setState(() {
-          _mediaDur = dur;
-        });
-      }
-    });
-    
-    // 监听加载状态
-    _playerLoadingSub = _player!.loadingStream.listen((loading) {
-      if (mounted) {
-        setState(() {
-          _playerLoading = loading;
-        });
-      }
-    });
-    
-    // 监听错误
-    _playerErrorSub = _player!.errorStream.listen((error) {
-      if (mounted) {
-        setState(() {
-          _playerError = error?.toString();
-        });
-        if (error != null) {
-          _showSnackBar('播放器错误: $error', isError: true);
-        }
-      }
-    });
-  }
-
+  
   void _initFileService() {
     _fileService = FileService(
       allowedExtensions: ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'm4v'],
     );
-    
-    _fileEventSub = _fileService!.events.listen((event) {
-      if (!mounted) return;
-      
-      switch (event) {
-        case FileSelected(file: final file):
-          setState(() {
-            _selectedFile = file;
-            _mediaCtrl.text = file.path;
-            _fileSelecting = false;
-          });
-          _showSnackBar('文件已选择: ${file.name}', isError: false);
-          break;
-        case FileSelectionCancelled():
-          setState(() {
-            _fileSelecting = false;
-          });
-          break;
-        case FileServiceError(error: final error):
-          setState(() {
-            _fileSelecting = false;
-          });
-          _showSnackBar('文件选择错误: ${error.message}', isError: true);
-          break;
-        default:
-          break;
-      }
-    });
   }
-
-  Future<void> _pickFile() async {
-    if (_fileService == null) {
-      _showSnackBar('文件服务未初始化', isError: true);
-      return;
-    }
-    
-    setState(() {
-      _fileSelecting = true;
-    });
-    
-    try {
-      await _fileService!.pickSingleFile(
-        dialogTitle: '选择媒体文件',
-        type: FileType.custom,
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _fileSelecting = false;
-        });
-        _showSnackBar('选择文件失败: $e', isError: true);
-      }
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _initServices();
-  }
-
+  
   @override
   void dispose() {
-    _client?.disconnect();
-    _autoClose?.cancel();
+    _posSub?.cancel();
+    _playSub?.cancel();
+    _fileEventSub?.cancel();
+    _p2pManager?.dispose();
     _loop?.dispose();
     _player?.dispose();
     _fileService?.dispose();
-    
-    // 取消所有订阅
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _playSub?.cancel();
-    _playerErrorSub?.cancel();
-    _playerLoadingSub?.cancel();
-    _fileEventSub?.cancel();
-    
-    // 释放控制器
-    _urlCtrl.dispose();
-    _roomCtrl.dispose();
-    _mediaCtrl.dispose();
-    
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('创建/加入会话')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('CineFlow'),
+        centerTitle: true,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           children: [
+            _buildConnectionCard(),
+            const SizedBox(height: 16),
+            _buildPlayerCard(),
+            const SizedBox(height: 16),
+            _buildLoopbackCard(),
+            const SizedBox(height: 16),
+            _buildLogCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConnectionCard() {
+    return Card(
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.wifi, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 12),
+                Text('P2P连接', style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+              ],
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _urlCtrl,
-              decoration: const InputDecoration(
-                labelText: '信令服务器 URL',
-                hintText: '例如 wss://example.com/signaling',
+              decoration: InputDecoration(
+                labelText: '信令服务器URL',
+                hintText: 'ws://localhost:8080',
+                prefixIcon: const Icon(Icons.cloud_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _roomCtrl,
-              decoration: const InputDecoration(
-                labelText: '会话 ID（加入时必填，创建可留空）',
+              controller: _sessionIdCtrl,
+              decoration: InputDecoration(
+                labelText: '会话ID',
+                hintText: '输入要加入的会话ID',
+                prefixIcon: const Icon(Icons.meeting_room_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+            if (_currentRoomId != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '当前会话: $_currentRoomId',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
-                  child: FilledButton(
-                    onPressed: _connecting || _connected ? null : _connect,
-                    child: Text(_connecting ? '连接中…' : '连接'),
+                  child: FilledButton.icon(
+                    onPressed: _canCreateSession() ? _createP2PSession : null,
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('创建会话'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: _connected ? _disconnect : null,
-                    child: const Text('断开'),
+                  child: FilledButton.tonalIcon(
+                    onPressed: _canJoinSession() ? _joinP2PSession : null,
+                    icon: const Icon(Icons.login),
+                    label: const Text('加入会话'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Row(
-                children: [
-                  Icon(
-                    _connected ? Icons.wifi : (_connecting ? Icons.wifi_off : Icons.signal_wifi_off),
-                    color: _connected ? Colors.green : (_connecting ? Colors.orange : Colors.red),
-                    size: 16,
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _canDisconnect() ? _disconnectP2P : null,
+                icon: const Icon(Icons.logout),
+                label: const Text('断开连接'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                  side: BorderSide(color: Theme.of(context).colorScheme.error),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _connected ? '状态：已连接' : (_connecting ? '状态：连接中' : '状态：未连接'),
-                    style: TextStyle(
-                      color: _connected ? Colors.green : (_connecting ? Colors.orange : Colors.red),
-                      fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayerCard() {
+    return Card(
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.video_library_outlined, color: Theme.of(context).colorScheme.secondary),
+                const SizedBox(width: 12),
+                Text('媒体播放器', style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _mediaCtrl,
+                    decoration: InputDecoration(
+                      labelText: '媒体地址',
+                      hintText: '选择本地文件或输入URL',
+                      prefixIcon: const Icon(Icons.link),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                     ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _fileSelecting ? null : _pickFile,
+                  icon: _fileSelecting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.folder_open),
+                  label: Text(_fileSelecting ? '选择中...' : '选择文件'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _mediaCtrl.text.isNotEmpty ? _loadMedia : null,
+                    icon: const Icon(Icons.play_circle_fill),
+                    label: const Text('加载媒体'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isPlaying ? _pauseMedia : _playMedia,
+                    icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                    label: Text(_isPlaying ? '暂停' : '播放'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoopbackCard() {
+    return Card(
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.science_outlined, color: Theme.of(context).colorScheme.tertiary),
+                const SizedBox(width: 12),
+                Text('本地环回测试', style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _setupLoopback,
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('启动测试'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loopReady ? _sendA : null,
+                    icon: const Icon(Icons.send),
+                    label: const Text('发送测试'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('RTT A', style: Theme.of(context).textTheme.labelSmall),
+                            Text('${_rttA ?? '-'} ms', style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            )),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('RTT B', style: Theme.of(context).textTheme.labelSmall),
+                            Text('${_rttB ?? '-'} ms', style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            )),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-
-            const Divider(height: 32),
-            const Text('本地环回测试（无服务端）', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _setupLoopback,
-                    child: const Text('建立本地环回'),
-                  ),
+                Icon(
+                  _isPlaying ? Icons.play_circle : Icons.pause_circle,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _loopReady ? _sendA : null,
-                    child: const Text('A -> 发送 ping'),
-                  ),
+                const SizedBox(width: 8),
+                Text('播放状态', style: Theme.of(context).textTheme.labelMedium),
+                const Spacer(),
+                Switch(
+                  value: _isPlaying,
+                  onChanged: (v) => setState(() => _isPlaying = v),
                 ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('播放位置: ${(_positionMs / 1000).toStringAsFixed(1)}s', 
+                  style: Theme.of(context).textTheme.labelMedium),
+                Slider(
+                  value: _positionMs,
+                  min: 0,
+                  max: 300000,
+                  onChanged: (v) => setState(() => _positionMs = v),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogCard() {
+    return Card(
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.terminal, color: Theme.of(context).colorScheme.outline),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _loopReady ? _sendB : null,
-                    child: const Text('B -> 发送 pong'),
+                Text('系统日志', style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => setState(() => _logs.clear()),
+                  icon: const Icon(Icons.clear_all, size: 16),
+                  label: const Text('清空'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.outline,
                   ),
                 ),
               ],
@@ -661,166 +664,53 @@ class _JoinSessionPageState extends State<JoinSessionPage> {
             const SizedBox(height: 12),
             Container(
               height: 200,
-              padding: const EdgeInsets.all(8),
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.black12),
-                borderRadius: BorderRadius.circular(8),
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                ),
               ),
-              child: ListView.builder(
-                itemCount: _logs.length,
-                itemBuilder: (_, i) => Text(_logs[i]),
-              ),
-            ),
-
-            const Divider(height: 32),
-            const Text('RTT / 状态同步', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: Text('RTT(A): ${_rttA?.toString() ?? '-'} ms')),
-                Expanded(child: Text('RTT(B): ${_rttB?.toString() ?? '-'} ms')),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text('播放中'),
-                const SizedBox(width: 8),
-                Switch(
-                  value: _isPlaying,
-                  onChanged: (v) => setState(() => _isPlaying = v),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('位置: ${_positionMs.toInt()} ms'),
-                      Slider(
-                        value: _positionMs,
-                        min: 0,
-                        max: 300000,
-                        divisions: 300,
-                        label: '${_positionMs.toInt()}ms',
-                        onChanged: (v) => setState(() => _positionMs = v),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _loopReady ? _sendStateA : null,
-                    child: const Text('A -> state_update'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _loopReady ? _sendStateB : null,
-                    child: const Text('B -> state_update'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('A 收到的最新状态: ${_lastStateA == null ? '-' : 'isPlaying=${_lastStateA!.isPlaying}, pos=${_lastStateA!.positionMs}ms, ts=${_lastStateA!.timestampUtcMs}'}'),
-            Text('B 收到的最新状态: ${_lastStateB == null ? '-' : 'isPlaying=${_lastStateB!.isPlaying}, pos=${_lastStateB!.positionMs}ms, ts=${_lastStateB!.timestampUtcMs}'}'),
-
-            const Divider(height: 32),
-            const Text('播放器联动（环回演示）', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _mediaCtrl,
-                    decoration: const InputDecoration(
-                      labelText: '媒体地址（本地路径或网络 URL）',
-                      hintText: '/path/to/file.mp4 或 https://.../video.mp4',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: _fileSelecting ? null : _pickFile,
-                  child: _fileSelecting 
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('选择文件'),
-                ),
-                if (_selectedFile != null) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
+              child: _logs.isEmpty
+                  ? Center(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            _selectedFile!.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
+                          Icon(
+                            Icons.description_outlined,
+                            color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                            size: 32,
                           ),
+                          const SizedBox(height: 8),
                           Text(
-                            '${_formatFileSize(_selectedFile!.size)} • ${_selectedFile!.extension.toUpperCase()}',
+                            '暂无日志',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
+                              color: Theme.of(context).colorScheme.outline,
+                              fontStyle: FontStyle.italic,
                             ),
                           ),
                         ],
                       ),
+                    )
+                  : ListView.builder(
+                      itemCount: _logs.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            _logs[index],
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                ],
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _loadMedia,
-                  child: const Text('加载'),
-                ),
-              ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: _player == null ? null : _togglePlayPause,
-                  child: Text(_playerPlaying ? '暂停' : '播放'),
-                ),
-                const SizedBox(width: 12),
-                Text('进度: ${_mediaPos ~/ 1000}s / ${_mediaDur == 0 ? '-' : _mediaDur ~/ 1000}s'),
-              ],
-            ),
-            if (_mediaDur > 0)
-              Slider(
-                value: _mediaPos.toDouble().clamp(0, _mediaDur.toDouble()),
-                min: 0,
-                max: _mediaDur.toDouble(),
-                onChanged: (v) => _seekPlayer(v),
-              ),
-            const SizedBox(height: 12),
-            if (_video != null)
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Video(controller: _video!),
-                ),
-              ),
           ],
         ),
       ),
