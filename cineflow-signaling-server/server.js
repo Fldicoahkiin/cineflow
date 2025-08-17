@@ -50,7 +50,7 @@ app.get('/health', (req, res) => {
 // Socket.io连接处理
 io.on('connection', (socket) => {
   log('Client connected', { socketId: socket.id });
-  
+
   // 存储socket信息
   peerConnections.set(socket.id, {
     socketId: socket.id,
@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
     try {
       const { roomId, peerId } = data;
       log('Creating room', { roomId, peerId, socketId: socket.id });
-      
+
       if (!roomId || !peerId) {
         socket.emit('error', { message: 'roomId and peerId are required' });
         return;
@@ -160,11 +160,11 @@ io.on('connection', (socket) => {
         existingPeers: existingPeers
       });
 
-      log('Joined room successfully', { 
-        roomId, 
-        peerId, 
-        socketId: socket.id, 
-        roomSize: room.peers.size 
+      log('Joined room successfully', {
+        roomId,
+        peerId,
+        socketId: socket.id,
+        roomSize: room.peers.size
       });
     } catch (error) {
       log('Error joining room', { error: error.message, socketId: socket.id });
@@ -177,7 +177,7 @@ io.on('connection', (socket) => {
     try {
       const { roomId, offer, targetPeer } = data;
       log('Forwarding offer', { roomId, targetPeer, socketId: socket.id });
-      
+
       if (targetPeer) {
         socket.to(targetPeer).emit('offer', {
           offer: offer,
@@ -198,7 +198,7 @@ io.on('connection', (socket) => {
     try {
       const { roomId, answer, targetPeer } = data;
       log('Forwarding answer', { roomId, targetPeer, socketId: socket.id });
-      
+
       if (targetPeer) {
         socket.to(targetPeer).emit('answer', {
           answer: answer,
@@ -219,7 +219,7 @@ io.on('connection', (socket) => {
     try {
       const { roomId, candidate, targetPeer } = data;
       log('Forwarding ICE candidate', { roomId, targetPeer, socketId: socket.id });
-      
+
       if (targetPeer) {
         socket.to(targetPeer).emit('ice_candidate', {
           candidate: candidate,
@@ -248,14 +248,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', (reason) => {
     try {
       log('Client disconnected', { socketId: socket.id, reason });
-      
+
       const peerInfo = peerConnections.get(socket.id);
       if (peerInfo && peerInfo.roomId) {
         const room = rooms.get(peerInfo.roomId);
         if (room) {
           // 从房间中移除
           room.peers.delete(socket.id);
-          
+
           // 通知房间内其他用户
           socket.to(peerInfo.roomId).emit('peer_left', {
             peerId: peerInfo.peerId,
@@ -307,7 +307,7 @@ server.listen(PORT, () => {
   });
 });
 
-// 优雅关闭
+// 关闭
 process.on('SIGTERM', () => {
   log('SIGTERM received, shutting down gracefully');
   server.close(() => {

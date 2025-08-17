@@ -1,0 +1,8 @@
+{
+    "app_dir": ".",
+    "cache_dependencies": true,
+    "build_command": "npm install",
+    "start_command": "npm start",
+    "node_version": "18",
+    "package_manager": "npm"
+}

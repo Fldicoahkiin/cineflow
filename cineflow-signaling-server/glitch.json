@@ -1,0 +1,19 @@
+{
+    "name": "cineflow-signaling-server",
+    "description": "WebRTC signaling server for CineFlow P2P video sync",
+    "version": "1.0.0",
+    "engines": {
+        "node": "18.x"
+    },
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": [
+        "webrtc",
+        "signaling",
+        "socket.io",
+        "p2p"
+    ],
+    "author": "CineFlow Team",
+    "license": "MIT"
+}
